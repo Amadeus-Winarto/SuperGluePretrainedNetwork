@@ -42,13 +42,13 @@
 
 from copy import deepcopy
 from pathlib import Path
-from typing import List, Dict
+from typing import List, Dict, Tuple
 
 import torch
 from torch import nn
 
 
-def MLP(channels: list, do_bn=True):
+def MLP(channels: List[int], do_bn: bool = True) -> nn.Module:
     """ Multi-layer perceptron """
     n = len(channels)
     layers = []
@@ -73,7 +73,7 @@ def normalize_keypoints(kpts, image_shape: List[int]):
 
 class KeypointEncoder(torch.jit.ScriptModule):
     """ Joint encoding of visual appearance and location using MLPs"""
-    def __init__(self, feature_dim, layers):
+    def __init__(self, feature_dim: int, layers: List[int]) -> None:
         super().__init__()
         self.encoder = MLP([3] + layers + [feature_dim])
         nn.init.constant_(self.encoder[-1].bias, 0.0)
@@ -84,7 +84,7 @@ class KeypointEncoder(torch.jit.ScriptModule):
         return self.encoder(torch.cat(inputs, dim=1))
 
 
-def attention(query, key, value):
+def attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> Tuple[torch.Tensor,torch.Tensor]:
     dim = query.shape[1]
     scores = torch.einsum('bdhn,bdhm->bhnm', query, key) / dim**.5
     prob = torch.nn.functional.softmax(scores, dim=-1)
@@ -105,12 +105,11 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         self.prob = []
 
     @torch.jit.script_method
-    def forward(self, query, key, value):
+    def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
         batch_dim = query.size(0)
         query, key, value = [l(x).view(batch_dim, self.dim, self.num_heads, -1)
                              for l, x in zip(self.proj, (query, key, value))]
-        x, prob = attention(query, key, value)
-        self.prob.append(prob)
+        x, _ = attention(query, key, value)
         return self.merge(x.contiguous().view(batch_dim, self.dim*self.num_heads, -1))
 
 
@@ -122,13 +121,13 @@ class AttentionalPropagation(torch.jit.ScriptModule):
         nn.init.constant_(self.mlp[-1].bias, 0.0)
 
     @torch.jit.script_method
-    def forward(self, x, source):
+    def forward(self, x: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
         message = self.attn(x, source, source)
         return self.mlp(torch.cat([x, message], dim=1))
 
 
 class AttentionalGNN(torch.jit.ScriptModule):
-    def __init__(self, feature_dim: int, layer_names: list):
+    def __init__(self, feature_dim: int, layer_names: List[str]) -> None:
         super().__init__()
         self.layers = nn.ModuleList([
             AttentionalPropagation(feature_dim, 4)
@@ -136,9 +135,9 @@ class AttentionalGNN(torch.jit.ScriptModule):
         self.names = layer_names
 
     @torch.jit.script_method
-    def forward(self, desc0, desc1):
+    def forward(self, desc0: torch.Tensor, desc1: torch.Tensor) -> Tuple[torch.Tensor,torch.Tensor]:
         for i, layer in enumerate(self.layers):
-            layer.attn.prob = []
+            # layer.attn.prob = []
             if self.names[i] == 'cross':
                 src0, src1 = desc1, desc0
             else:  # if name == 'self':
@@ -148,7 +147,7 @@ class AttentionalGNN(torch.jit.ScriptModule):
         return desc0, desc1
 
 
-def log_sinkhorn_iterations(Z, log_mu, log_nu, iters: int):
+def log_sinkhorn_iterations(Z: torch.Tensor, log_mu: torch.Tensor, log_nu: torch.Tensor, iters: int) -> torch.Tensor:
     """ Perform Sinkhorn Normalization in Log-space for stability"""
     u, v = torch.zeros_like(log_mu), torch.zeros_like(log_nu)
     for _ in range(iters):
@@ -157,7 +156,7 @@ def log_sinkhorn_iterations(Z, log_mu, log_nu, iters: int):
     return Z + u.unsqueeze(2) + v.unsqueeze(1)
 
 
-def log_optimal_transport(scores, alpha, iters: int):
+def log_optimal_transport(scores: torch.Tensor, alpha: torch.Tensor, iters: int) -> torch.Tensor:
     """ Perform Differentiable Optimal Transport in Log-space for stability"""
     b, m, n = scores.shape
     ms, ns = torch.tensor(m).to(scores), torch.tensor(n).to(scores)
@@ -225,7 +224,7 @@ class SuperGlue(torch.jit.ScriptModule):
             self.descriptor_dim, self.keypoint_encoder)
 
         self.gnn = AttentionalGNN(
-            self.descriptor_dim, self.GNN_layers)
+            feature_dim=self.config['descriptor_dim'], layer_names=self.config['GNN_layers'])
 
         self.final_proj = nn.Conv1d(
             self.descriptor_dim, self.descriptor_dim,
@@ -236,8 +235,8 @@ class SuperGlue(torch.jit.ScriptModule):
 
         assert self.weights in ['indoor', 'outdoor']
         path = Path(__file__).parent
-        path = path / 'weights/superglue_{}.pth'.format(self.weights)
-        self.load_state_dict(torch.load(path))
+        path = path / 'weights/superglue_{}.pth'.format(self.config['weights'])
+        self.load_state_dict(torch.load(str(path)))
         print('Loaded SuperGlue model (\"{}\" weights)'.format(
             self.weights))
 
