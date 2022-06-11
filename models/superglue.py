@@ -62,10 +62,9 @@ def MLP(channels: List[int], do_bn: bool = True) -> nn.Module:
     return nn.Sequential(*layers)
 
 
-def normalize_keypoints(kpts, image_shape: List[int]):
+def normalize_keypoints(kpts, image_shape: torch.Tensor):
     """ Normalize keypoints locations based on image image_shape"""
-    _, _, height, width = image_shape
-    size = torch.tensor([[width, height]], dtype=torch.float, device=kpts.device)
+    size = image_shape.flip(0).unsqueeze(0)
     center = size / 2
     scaling = size.max(1, keepdim=True).values * 0.7
     return (kpts - center[:, None, :]) / scaling[:, None, :]
@@ -256,8 +255,8 @@ class SuperGlue(torch.jit.ScriptModule):
             }
 
         # Keypoint normalization.
-        kpts0 = normalize_keypoints(kpts0, data['image0'].shape)
-        kpts1 = normalize_keypoints(kpts1, data['image1'].shape)
+        kpts0 = normalize_keypoints(kpts0, data['image_size0'])
+        kpts1 = normalize_keypoints(kpts1, data['image_size1'])
 
         # Keypoint MLP encoder.
         desc0 = desc0 + self.kenc(kpts0, data['scores0'])
@@ -292,8 +291,8 @@ class SuperGlue(torch.jit.ScriptModule):
         indices1 = torch.where(valid1, indices1, torch.tensor(-1).to(indices1))
 
         return {
-            'matches0': indices0, # use -1 for invalid match
-            'matches1': indices1, # use -1 for invalid match
+            'matches0': indices0,  # use -1 for invalid match
+            'matches1': indices1,  # use -1 for invalid match
             'matching_scores0': mscores0,
             'matching_scores1': mscores1,
         }
