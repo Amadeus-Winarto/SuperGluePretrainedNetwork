@@ -100,7 +100,7 @@ def sample_descriptors(keypoints, descriptors, s: int = 8):
     return descriptors
 
 
-class SuperPoint(torch.jit.ScriptModule):
+class SuperPoint(nn.Module):
     """SuperPoint Convolutional Detector and Descriptor
 
     SuperPoint: Self-Supervised Interest Point Detection and
@@ -157,7 +157,7 @@ class SuperPoint(torch.jit.ScriptModule):
 
         print("Loaded SuperPoint model")
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, image: torch.Tensor) -> Dict[str, List[torch.Tensor]]:
         """Compute keypoints, scores, descriptors for image"""
         # Shared Encoder

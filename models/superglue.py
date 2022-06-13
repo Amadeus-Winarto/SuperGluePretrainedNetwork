@@ -70,14 +70,14 @@ def normalize_keypoints(kpts, image_shape: torch.Tensor):
     return (kpts - center[:, None, :]) / scaling[:, None, :]
 
 
-class KeypointEncoder(torch.jit.ScriptModule):
+class KeypointEncoder(nn.Module):
     """ Joint encoding of visual appearance and location using MLPs"""
     def __init__(self, feature_dim: int, layers: List[int]) -> None:
         super().__init__()
         self.encoder = MLP([3] + layers + [feature_dim])
         nn.init.constant_(self.encoder[-1].bias, 0.0)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, kpts, scores):
         inputs = [kpts.transpose(1, 2), scores.unsqueeze(1)]
         return self.encoder(torch.cat(inputs, dim=1))
@@ -90,7 +90,7 @@ def attention(query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> Tu
     return torch.einsum('bhnm,bdhm->bdhn', prob, value), prob
 
 
-class MultiHeadedAttention(torch.jit.ScriptModule):
+class MultiHeadedAttention(nn.Module):
     """ Multi-head attention to increase model expressivitiy """
     prob: List[torch.Tensor]
 
@@ -103,7 +103,7 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         self.proj = nn.ModuleList([deepcopy(self.merge) for _ in range(3)])
         self.prob = []
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor) -> torch.Tensor:
         batch_dim = query.size(0)
         query, key, value = [l(x).view(batch_dim, self.dim, self.num_heads, -1)
@@ -112,20 +112,20 @@ class MultiHeadedAttention(torch.jit.ScriptModule):
         return self.merge(x.contiguous().view(batch_dim, self.dim*self.num_heads, -1))
 
 
-class AttentionalPropagation(torch.jit.ScriptModule):
+class AttentionalPropagation(nn.Module):
     def __init__(self, feature_dim: int, num_heads: int):
         super().__init__()
         self.attn = MultiHeadedAttention(num_heads, feature_dim)
         self.mlp = MLP([feature_dim*2, feature_dim*2, feature_dim])
         nn.init.constant_(self.mlp[-1].bias, 0.0)
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, x: torch.Tensor, source: torch.Tensor) -> torch.Tensor:
         message = self.attn(x, source, source)
         return self.mlp(torch.cat([x, message], dim=1))
 
 
-class AttentionalGNN(torch.jit.ScriptModule):
+class AttentionalGNN(nn.Module):
     def __init__(self, feature_dim: int, layer_names: List[str]) -> None:
         super().__init__()
         self.layers = nn.ModuleList([
@@ -133,7 +133,7 @@ class AttentionalGNN(torch.jit.ScriptModule):
             for _ in range(len(layer_names))])
         self.names = layer_names
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, desc0: torch.Tensor, desc1: torch.Tensor) -> Tuple[torch.Tensor,torch.Tensor]:
         for i, layer in enumerate(self.layers):
             # layer.attn.prob = []
@@ -181,7 +181,7 @@ def arange_like(x, dim: int):
     return torch.ones(x.shape[dim], dtype=x.dtype, device=x.device).cumsum(0) - 1
 
 
-class SuperGlue(torch.jit.ScriptModule):
+class SuperGlue(nn.Module):
     """SuperGlue feature matching middle-end
 
     Given two sets of keypoints and locations, we determine the
@@ -239,7 +239,7 @@ class SuperGlue(torch.jit.ScriptModule):
         print('Loaded SuperGlue model (\"{}\" weights)'.format(
             self.weights))
 
-    @torch.jit.script_method
+    # @torch.jit.script_method
     def forward(self, data: Dict[str, torch.Tensor]):
         """Run SuperGlue on a pair of keypoints and descriptors"""
         desc0, desc1 = data['descriptors0'], data['descriptors1']
