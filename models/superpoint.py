@@ -115,6 +115,7 @@ class SuperPoint(nn.Module):
         "keypoint_threshold": 0.005,
         "max_keypoints": -1,
         "remove_borders": 4,
+        "path": Path(__file__).parent / "weights/superpoint_v1.pth"
     }
 
     def __init__(self, config):
@@ -126,6 +127,7 @@ class SuperPoint(nn.Module):
         self.keypoint_threshold = self.config["keypoint_threshold"]
         self.max_keypoints = self.config["max_keypoints"]
         self.remove_borders = self.config["remove_borders"]
+        self.path = self.config["path"]
 
         self.relu = nn.ReLU(inplace=True)
         self.pool = nn.MaxPool2d(kernel_size=2, stride=2)
@@ -148,8 +150,7 @@ class SuperPoint(nn.Module):
             c5, self.descriptor_dim, kernel_size=1, stride=1, padding=0
         )
 
-        path = Path(__file__).parent / "weights/superpoint_v1.pth"
-        self.load_state_dict(torch.load(str(path)))
+        self.load_state_dict(torch.load(str(self.path)))
 
         mk = self.max_keypoints
         if mk == 0 or mk < -1:
